@@ -20,6 +20,7 @@ from bfcl_eval.model_handler.utils import parse_prompt_variation_params
 from bfcl_eval.utils import *
 from dotenv import load_dotenv
 from tqdm import tqdm
+from types import SimpleNamespace
 
 
 def get_handler(model_name: str) -> BaseHandler:
@@ -28,6 +29,16 @@ def get_handler(model_name: str) -> BaseHandler:
         model_name, temperature=0
     )  # Temperature doesn't matter for evaluation
     handler.is_fc_model = config.is_fc_model
+    return handler
+
+
+def get_handler_lightllm(model_name, args):
+    config = MODEL_CONFIG_MAPPING[model_name]
+    handler: BaseHandler = config.model_handler(
+        model_name=config.model_name,
+        temperature=args.temperature,
+        args=args
+    )
     return handler
 
 
@@ -700,7 +711,7 @@ def evaluate_task(
     return leaderboard_table
 
 
-def runner(model_names, test_categories, result_dir, score_dir):
+def runner(model_names, test_categories, result_dir, score_dir, args):
 
     # A dictionary to store the evaluation scores.
     # Key is model name, value is a dictionary with keys as test category
@@ -731,7 +742,10 @@ def runner(model_names, test_categories, result_dir, score_dir):
             if test_category not in test_categories:
                 continue
 
-            handler = get_handler(model_name_escaped)
+            if "lightllm" in model_name:
+                handler = get_handler_lightllm(model_name_escaped, args)
+            else:
+                handler = get_handler(model_name_escaped)
 
             # We don't evaluate the following categories in the current iteration of the benchmark
             if (
@@ -764,6 +778,8 @@ def runner(model_names, test_categories, result_dir, score_dir):
 
 def main(model, test_categories, result_dir, score_dir):
     if result_dir is None:
+        if type(model) is not list:
+            model = [model]
         result_dir = RESULT_PATH
     else:
         result_dir = (PROJECT_ROOT / result_dir).resolve()
@@ -789,8 +805,11 @@ def main(model, test_categories, result_dir, score_dir):
             # We patch it here to avoid confusing the user.
             model_names.append(model_name.replace("/", "_"))
 
+    # 构造一个最小的 args 以兼容修改后的 handler 初始化签名
+    eval_args = SimpleNamespace(temperature=0.6, lightllm_url="", top_p=0.95, top_k=20, repetition_penalty=1.1, max_new_tokens=32768, stop_tokens="<|im_end|>", do_sample=True, skip_special_tokens=False, add_special_tokens=False, enable_thinking=False)
+
     # Driver function to run the evaluation for all categories involved.
-    runner(model_names, all_test_categories, result_dir, score_dir)
+    runner(model_names, all_test_categories, result_dir, score_dir, eval_args)
 
     print(
         f"🏁 Evaluation completed. See {score_dir / 'data_overall.csv'} for overall evaluation results on BFCL V4."

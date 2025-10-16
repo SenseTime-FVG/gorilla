@@ -8,6 +8,9 @@ import html2text
 import requests
 from bs4 import BeautifulSoup
 from serpapi import GoogleSearch
+from serpapi import DuckDuckGoSearch
+from ddgs import DDGS
+from langchain_community.utilities import GoogleSerperAPIWrapper
 
 ERROR_TEMPLATES = [
     "503 Server Error: Service Unavailable for url: {url}",
@@ -138,12 +141,25 @@ class WebSearchAPI:
             "kl": region,
             "api_key": os.getenv("SERPAPI_API_KEY"),
         }
+        
+        search_method = os.getenv("SearchMethod", "duckduckgo")
 
         # Infinite retry loop with exponential backoff
         while True:
             try:
-                search = GoogleSearch(params)
-                search_results = search.get_dict()
+                if search_method == "duckduckgo":
+                    tmp_search_result = DDGS(timeout=60000).text(keywords, max_results=max_results)
+                    search_results = {"organic_results": tmp_search_result}
+                elif search_method == "serperapi":
+                    search = GoogleSerperAPIWrapper(
+                        serper_api_key=os.getenv("SERPER_API_KEY"),
+                        type="search"
+                    )
+                    tmp_results = search.results(keywords, max_results=max_results)
+                    search_results = {"organic_results": tmp_results["organic"]}
+                else:
+                    search = GoogleSearch(params)
+                    search_results = search.get_dict()
             except Exception as e:
                 # If the underlying HTTP call raised a 429 we retry, otherwise propagate
                 if "429" in str(e):
@@ -181,6 +197,9 @@ class WebSearchAPI:
 
             break  # Success – no rate-limit error detected
 
+        # print(f"debug damonzheng, search_method: {search_method}")
+        # print(f"debug damonzheng, search_results: {search_results}")
+        
         if "organic_results" not in search_results:
             return {
                 "error": "Failed to retrieve the search results from server. Please try again later."
@@ -191,21 +210,43 @@ class WebSearchAPI:
         # Convert the search results to the desired format
         results = []
         for result in search_results[:max_results]:
-            if self.show_snippet:
-                results.append(
-                    {
-                        "title": result["title"],
-                        "href": result["link"],
-                        "body": result["snippet"],
-                    }
-                )
+            if search_method == "duckduckgo":
+                try:
+                    if self.show_snippet:
+                        results.append(
+                            {
+                                "title": result["title"],
+                                "href": result["href"],
+                                "body": result["body"],
+                            }
+                        )
+                    else:
+                        results.append(
+                            {
+                                "title": result["title"],
+                                "href": result["href"],
+                            }
+                        )
+                except Exception as e:
+                    error_string = f"Error processing DuckDuckGo search result: {str(e)}"
+                    print(error_string)
+                    return {"error": error_string}
             else:
-                results.append(
-                    {
-                        "title": result["title"],
-                        "href": result["link"],
-                    }
-                )
+                if self.show_snippet:
+                    results.append(
+                        {
+                            "title": result["title"],
+                            "href": result["link"],
+                            "body": result["snippet"],
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "title": result["title"],
+                            "href": result["link"],
+                        }
+                    )
 
         return results
 

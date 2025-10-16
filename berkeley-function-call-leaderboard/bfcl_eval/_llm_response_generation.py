@@ -29,17 +29,17 @@ from bfcl_eval.model_handler.local_inference.base_oss_handler import OSSHandler
 def get_args():
     parser = argparse.ArgumentParser()
     # Refer to model_choice for supported models.
-    parser.add_argument("--model", type=str, default="gorilla-openfunctions-v2", nargs="+")
+    parser.add_argument("--model", type=str, default="qwen3-14b-official-lightllm", nargs="+")
     # Refer to test_categories for supported categories.
     parser.add_argument("--test-category", type=str, default="all", nargs="+")
 
     # Parameters for the model that you want to test.
-    parser.add_argument("--temperature", type=float, default=0.001)
+    parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--include-input-log", action="store_true", default=False)
-    parser.add_argument("--exclude-state-log", action="store_true", default=False)
+    parser.add_argument("--exclude-state-log", action="store_true", default=True)
     parser.add_argument("--num-threads", default=1, type=int)
     parser.add_argument("--num-gpus", default=1, type=int)
-    parser.add_argument("--backend", default="sglang", type=str, choices=["vllm", "sglang"])
+    parser.add_argument("--backend", default="vllm", type=str, choices=["vllm", "sglang"])
     parser.add_argument("--gpu-memory-utilization", default=0.9, type=float)
     parser.add_argument("--result-dir", default=None, type=str)
     parser.add_argument("--run-ids", action="store_true", default=False)
@@ -47,8 +47,8 @@ def get_args():
     parser.add_argument(
         "--skip-server-setup",
         action="store_true",
-        default=False,
-        help="Skip vLLM/SGLang server setup and use existing endpoint specified by the LOCAL_SERVER_ENDPOINT and LOCAL_SERVER_PORT environment variables.",
+        default=True,
+        help="Skip vLLM/SGLang/lightllm server setup and use existing endpoint specified by the LOCAL_SERVER_ENDPOINT and LOCAL_SERVER_PORT environment variables.",
     )
     # Optional local model path
     parser.add_argument(
@@ -57,6 +57,14 @@ def get_args():
         default=None,
         help="Specify the path to a local directory containing the model's config/tokenizer/weights for fully offline inference. Use this only if the model weights are stored in a location other than the default HF_HOME directory.",
     )
+    parser.add_argument("--lightllm-host", type=str, default="127.0.0.1", help="Host address for LightLLM service (overrides LIGHTLLM_ENDPOINT environment variable).")
+    parser.add_argument("--lightllm-port", type=str, default="8000", help="Port number for LightLLM service (overrides LIGHTLLM_PORT environment variable).")
+    parser.add_argument("--top_p", type=float, default=0.95, help="Top-p parameter for LightLLM generation (overrides LIGHTLLM_TOP_P environment variable).")
+    parser.add_argument("--top_k", type=int, default=20, help="Top-k parameter for LightLLM generation (overrides LIGHTLLM_TOP_K environment variable).")
+    parser.add_argument("--repetition_penalty", type=float, default=1.0, help="Repetition penalty parameter for LightLLM generation (overrides LIGHTLLM_REPETITION_PENALTY environment variable).")
+    parser.add_argument("--max_new_tokens", type=int, default=16384, help="Maximum new tokens parameter for LightLLM generation (overrides LIGHTLLM_MAX_NEW_TOKENS environment variable).")
+    parser.add_argument("--stop_tokens", type=str, default="<|im_end|>", help="Stop tokens for LightLLM generation, comma-separated (overrides LIGHTLLM_STOP_TOKENS environment variable).")
+    
     args = parser.parse_args()
 
     return args
@@ -67,6 +75,16 @@ def build_handler(model_name, temperature):
     handler = config.model_handler(model_name, temperature)
     # Propagate config flags to the handler instance
     handler.is_fc_model = config.is_fc_model
+    return handler
+
+
+def build_handler_lightllm(model_name, args):
+    config = MODEL_CONFIG_MAPPING[model_name]
+    handler = config.model_handler(
+        model_name=config.model_name,
+        temperature=args.temperature,
+        args=args,
+    )
     return handler
 
 
@@ -199,7 +217,11 @@ def multi_threaded_inference(handler, test_case, include_input_log, exclude_stat
 
 
 def generate_results(args, model_name, test_cases_total):
-    handler = build_handler(model_name, args.temperature)
+    if "lightllm" in model_name:
+        handler = build_handler_lightllm(model_name, args)
+    else:
+        handler = build_handler(model_name, args.temperature)
+    
     num_threads = args.num_threads
 
     if isinstance(handler, OSSHandler):
@@ -384,3 +406,8 @@ def main(args):
             # Sort the result files by id at the end
             for model_result_json in args.result_dir.rglob(RESULT_FILE_PATTERN):
                 sort_file_content_by_id(model_result_json)
+
+
+if __name__ == "__main__":
+    args = get_args()
+    main(args)

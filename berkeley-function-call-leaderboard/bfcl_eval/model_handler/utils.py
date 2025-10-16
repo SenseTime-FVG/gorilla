@@ -31,6 +31,74 @@ if TYPE_CHECKING:
     )
 
 
+def _get_language_specific_hint(test_category):
+    if test_category == "java":
+        return " Note that the provided function is in Java 8 SDK syntax."
+    elif test_category == "javascript":
+        return " Note that the provided function is in JavaScript syntax."
+    else:
+        return " Note that the provided function is in Python 3 syntax."
+
+
+def func_doc_language_specific_pre_processing(function, test_category):
+    if len(function) == 0:
+        return function
+
+    assert type(function) == list
+    for item in function:
+        # Add language specific hints to the function description
+        func_description = item["description"]
+        item["description"] = item["description"] + _get_language_specific_hint(
+            test_category
+        )
+        # Process the parameters
+        properties = item["parameters"]["properties"]
+        if test_category == "java":
+            for key, value in properties.items():
+                if value["type"] == "any":
+                    properties[key][
+                        "description"
+                    ] += " This parameter can be of any type of Java object in string representation."
+                else:
+                    value[
+                        "description"
+                    ] += f" This is Java {value['type']} type parameter in string representation."
+                if value["type"] == "ArrayList" or value["type"] == "Array":
+                    value[
+                        "description"
+                    ] += f" The list elements are of type {value['items']['type']}; they are not in string representation."
+                    del value["items"]
+
+                value["type"] = "string"
+
+        elif test_category == "javascript":
+            for key, value in properties.items():
+                if value["type"] == "any":
+                    properties[key][
+                        "description"
+                    ] += " This parameter can be of any type of JavaScript object in string representation."
+                else:
+                    value[
+                        "description"
+                    ] += f" This is JavaScript {value['type']} type parameter in string representation."
+                if value["type"] == "array":
+                    value[
+                        "description"
+                    ] += f" The list elements are of type {value['items']['type']}; they are not in string representation."
+                    del value["items"]
+
+                if value["type"] == "dict":
+                    if "properties" in value:  # not every dict has properties
+                        value[
+                            "description"
+                        ] += f" The dictionary entries have the following schema; they are not in string representation. {json.dumps(value['properties'])}"
+                        del value["properties"]
+
+                value["type"] = "string"
+
+    return function
+
+
 def _cast_to_openai_type(properties, mapping):
     for key, value in properties.items():
         if "type" not in value:
