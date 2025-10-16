@@ -106,7 +106,7 @@ def generate(
         callback=handle_multiple_input
     ),
     temperature: float = typer.Option(
-        0.001, help="The temperature parameter for the model."
+        0.6, help="The temperature parameter for the model."
     ),
     include_input_log: bool = typer.Option(
         False,
@@ -148,6 +148,56 @@ def generate(
         "--run-ids",
         help="If true, also run the test entry mentioned in the test_case_ids_to_generate.json file, in addition to the --test_category argument.",
     ),
+    lightllm_url: Optional[str] = typer.Option(
+        "",
+        "--lightllm_url",
+        help="base_url for LightLLM service",
+    ),
+    top_p: Optional[float] = typer.Option(
+        0.95,
+        "--top-p",
+        help="Top-p parameter for LightLLM generation (overrides LIGHTLLM_TOP_P environment variable).",
+    ),
+    top_k: Optional[int] = typer.Option(
+        20,
+        "--top-k",
+        help="Top-k parameter for LightLLM generation (overrides LIGHTLLM_TOP_K environment variable).",
+    ),
+    repetition_penalty: Optional[float] = typer.Option(
+        1.05,
+        "--repetition-penalty",
+        help="Repetition penalty parameter for LightLLM generation (overrides LIGHTLLM_REPETITION_PENALTY environment variable).",
+    ),
+    max_new_tokens: Optional[int] = typer.Option(
+        32768,
+        "--max-new-tokens",
+        help="Maximum new tokens parameter for LightLLM generation (overrides LIGHTLLM_MAX_NEW_TOKENS environment variable).",
+    ),
+    do_sample: bool = typer.Option(
+        True,
+        "--do-sample",
+        help="Whether to use sampling for LightLLM generation.",
+    ),
+    skip_special_tokens: bool = typer.Option(
+        False,
+        "--skip-special-tokens",
+        help="Whether to skip special tokens in LightLLM generation output.",
+    ),
+    add_special_tokens: bool = typer.Option(
+        False,
+        "--add-special-tokens",
+        help="Whether to add special tokens in LightLLM generation.",
+    ),
+    stop_sequences: Optional[str] = typer.Option(
+        "<|im_end|>",
+        "--stop_sequences",
+        help="Stop tokens for LightLLM generation, comma-separated (overrides LIGHTLLM_STOP_TOKENS environment variable).",
+    ),
+    enable_thinking: bool = typer.Option(
+        False,
+        "--enable_thinking",
+        help="Whether to use thinking mode for LightLLM generation.",
+    ),
 ):
     """
     Generate the LLM response for one or more models on a test-category (same as openfunctions_evaluation.py).
@@ -168,6 +218,16 @@ def generate(
         result_dir=result_dir,
         allow_overwrite=allow_overwrite,
         run_ids=run_ids,
+        lightllm_url=lightllm_url,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        max_new_tokens=max_new_tokens,
+        do_sample=do_sample,
+        skip_special_tokens=skip_special_tokens,
+        add_special_tokens=add_special_tokens,
+        stop_tokens=stop_sequences,
+        enable_thinking=enable_thinking
     )
     load_dotenv(dotenv_path=DOTENV_PATH, verbose=True, override=True)  # Load the .env file
     generation_main(args)

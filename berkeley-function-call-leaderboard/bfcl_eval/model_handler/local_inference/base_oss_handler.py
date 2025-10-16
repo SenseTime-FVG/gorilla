@@ -103,20 +103,24 @@ class OSSHandler(BaseHandler, EnforceOverrides):
                 "trust_remote_code": True,
             }
 
-        self.tokenizer = AutoTokenizer.from_pretrained(**load_kwargs)
-        config = AutoConfig.from_pretrained(**load_kwargs)
+        if "lightllm" not in self.model_name:
+            self.tokenizer = AutoTokenizer.from_pretrained(**load_kwargs)
+            config = AutoConfig.from_pretrained(**load_kwargs)
 
-        if hasattr(config, "max_position_embeddings"):
-            self.max_context_length = config.max_position_embeddings
-        elif self.tokenizer.model_max_length is not None:
-            self.max_context_length = self.tokenizer.model_max_length
+            if hasattr(config, "max_position_embeddings"):
+                self.max_context_length = config.max_position_embeddings
+            elif self.tokenizer.model_max_length is not None:
+                self.max_context_length = self.tokenizer.model_max_length
+            else:
+                if not hasattr(self, "max_context_length"):
+                    raise ValueError(
+                        "Model does not have a max_position_embeddings attribute or tokenizer.model_max_length attribute. Please set the max_context_length attribute in the corresponding model handler."
+                    )
+            print(f"Max context length: {self.max_context_length}")
         else:
-            if not hasattr(self, "max_context_length"):
-                raise ValueError(
-                    "Model does not have a max_position_embeddings attribute or tokenizer.model_max_length attribute. Please set the max_context_length attribute in the corresponding model handler."
-                )
-        print(f"Max context length: {self.max_context_length}")
-
+            self.max_context_length = self.max_new_tokens
+        
+        
         self._server_process = process = None
         self._stdout_thread = stdout_thread = None
         self._stderr_thread = stderr_thread = None
@@ -199,7 +203,7 @@ class OSSHandler(BaseHandler, EnforceOverrides):
             self._stderr_thread = stderr_thread
 
             # Wait for the server to be ready
-            server_ready = False
+            server_ready = True
             while not server_ready:
                 # Check if the process has terminated unexpectedly
                 if not skip_server_setup and process.poll() is not None:
@@ -212,7 +216,10 @@ class OSSHandler(BaseHandler, EnforceOverrides):
                     )
                 try:
                     # Make a simple request to check if the server is up
-                    response = requests.get(f"{self.base_url}/models")
+                    if "lightllm" in self.model_name:
+                        response = requests.get(f"{self.base_url}")
+                    else:
+                        response = requests.get(f"{self.base_url}/models")
                     if response.status_code == 200:
                         server_ready = True
                         print("server is ready!")
