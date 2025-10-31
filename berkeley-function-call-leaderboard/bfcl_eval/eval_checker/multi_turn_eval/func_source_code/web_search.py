@@ -250,7 +250,7 @@ class WebSearchAPI:
 
         return results
 
-    def fetch_url_content(self, url: str, mode: str = "raw") -> str:
+    def fetch_url_content(self, url: str, mode: str = "truncate") -> str:
         """
         This function retrieves content from the provided URL and processes it based on the selected mode.
 

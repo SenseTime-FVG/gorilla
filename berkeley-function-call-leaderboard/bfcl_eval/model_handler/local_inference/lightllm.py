@@ -311,18 +311,29 @@ class LightLLMHandler(OSSHandler):
             response.raise_for_status()
             api_response = response.json()
         except requests.exceptions.RequestException as e:
+            # 1. 统一异常捕获
             import traceback
             tb = traceback.format_exc()
-            if hasattr(e, 'response') and e.response is not None:
-                resp = e.response
-                print("response.status_code:", getattr(resp, 'status_code', 'N/A'))
-                try:
-                    print("response.text:", resp.text[:500])
-                except Exception as ex:
-                    print("Unable to print response.text:", ex)
-            else:
-                print("response is not available")
-            raise Exception(f"LightLLM generate接口调用失败: {tb}")
+            # 2. 返回的响应信息中的日志
+            e_response = getattr(e, "response", None)
+            response_text = getattr(e_response, "text", "N/A")
+            if response_text and len(response_text) > 800:
+                response_text = response_text[:800] + "...[TRUNCATED]"
+            # 3. 一般错误都是websearch的时候在fetchurl时返回了过长的数据，基本都是message最后一条
+            # 所以这边返回一下message的倒数第二条看看fetch了哪个网址
+            last_assistant = ""
+            try:
+                if message and len(message) > 1:
+                    last_assistant = json.dumps(message[-2])
+            except Exception as ee:
+                last_assistant = f"some error when getting last assistant: {ee}"
+            # 组织所有异常信息并返回
+            err_message = {
+                "tb": tb,
+                "response_text": response_text,
+                "last_assistant": last_assistant,
+            }
+            raise Exception(f"LightLLM generate接口调用失败: {json.dumps(err_message)}")
         
         end_time = time.time()
         query_latency = end_time - start_time
