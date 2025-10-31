@@ -312,6 +312,7 @@ class LightLLMHandler(OSSHandler):
             api_response = response.json()
         except requests.exceptions.RequestException as e:
             import traceback
+            tb = traceback.format_exc()
             if hasattr(e, 'response') and e.response is not None:
                 resp = e.response
                 print("response.status_code:", getattr(resp, 'status_code', 'N/A'))
@@ -321,7 +322,7 @@ class LightLLMHandler(OSSHandler):
                     print("Unable to print response.text:", ex)
             else:
                 print("response is not available")
-            raise Exception(f"LightLLM generate接口调用失败: {traceback.format_exc()}")
+            raise Exception(f"LightLLM generate接口调用失败: {tb}")
         
         end_time = time.time()
         query_latency = end_time - start_time
