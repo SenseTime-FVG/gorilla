@@ -131,7 +131,7 @@ class MemoryAPI_rec_sum(MemoryAPI):
             }
 
         self.memory = self.memory.replace(old_text, new_text)
-        return {"status": "Memory updated."}
+        return {"status": "Memory replaced."}
 
     def memory_retrieve(self) -> Dict[str, str]:
         """
