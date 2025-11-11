@@ -411,7 +411,7 @@ def main(args):
 if __name__ == "__main__":
     args = get_args()
     args.model="qwen3-14b-debug-lightllm"
-    # args.model="gpt-4o-2024-11-20"
+    # args.model="zai-org/GLM-4.5"
     # args.test_category=["all"]
     args.test_category="web_search"
     args.result_dir="results_think"
@@ -424,13 +424,13 @@ if __name__ == "__main__":
     args.gpu_memory_utilization=0.9
     args.skip_server_setup=True
     args.local_model_path=None
-    args.lightllm_host="10.119.17.196"
+    args.lightllm_host="10.119.21.61"
     args.lightllm_port="60012"
     args.lightllm_url=f"http://{args.lightllm_host}:{args.lightllm_port}/generate"
     args.top_p=0.95
     args.top_k=20
     args.repetition_penalty=1.05
-    args.max_new_tokens=32768
+    args.max_new_tokens=8192
     args.do_sample=True
     args.skip_special_tokens=False
     args.add_special_tokens=False

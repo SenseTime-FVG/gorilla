@@ -30,8 +30,10 @@ class APIRequestsHandler(BaseHandler):
         self.model_style = ModelStyle.OPENAI_COMPLETIONS
         # self.api_key = os.getenv("CLOUDSWAY_API_KEY", "XXXX")
         # self.base_url = os.getenv("CLOUDSWAY_BASE_URL", "https://genaiapi.cloudsway.net/v1/ai/qzZpcuWIVRuWVmxd/chat/completions")
-        self.api_key = os.getenv("SILICONFLOW_API_KEY", "XXXX")
-        self.base_url = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1/chat/completions")
+        # self.api_key = os.getenv("SILICONFLOW_API_KEY", "XXXX")
+        # self.base_url = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1/chat/completions")
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.base_url = os.getenv("OPENAI_BASE_URL")
 
 
     def decode_ast(self, result, language=ReturnFormat.PYTHON, has_tool_call_tag=True):
@@ -129,6 +131,8 @@ class APIRequestsHandler(BaseHandler):
             tool_call_ids = [
                 func_call["id"] for func_call in api_response["choices"][0]["message"]["tool_calls"]
             ]
+            if not model_responses:
+                model_responses = api_response["choices"][0]["message"]["content"]
         except:
             model_responses = api_response["choices"][0]["message"]["content"]
             tool_call_ids = []

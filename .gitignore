@@ -44,3 +44,6 @@ berkeley-function-call-leaderboard/bfcl_eval/scripts/ground_truth_conversation/
 
 # model_config.py.backup
 model_config.py.backup.*
+
+# Other
+results_think/
