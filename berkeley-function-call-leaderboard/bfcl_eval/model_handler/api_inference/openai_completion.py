@@ -22,7 +22,10 @@ class OpenAICompletionsHandler(BaseHandler):
     def __init__(self, model_name, temperature) -> None:
         super().__init__(model_name, temperature)
         self.model_style = ModelStyle.OPENAI_COMPLETIONS
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = OpenAI(
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            api_key=os.getenv("OPENAI_API_KEY"),
+        )
 
     def decode_ast(self, result, language, has_tool_call_tag):
         if "FC" in self.model_name or self.is_fc_model:

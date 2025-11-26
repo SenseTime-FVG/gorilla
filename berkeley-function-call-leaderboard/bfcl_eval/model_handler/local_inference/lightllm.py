@@ -333,8 +333,11 @@ class LightLLMHandler(OSSHandler):
                 "response_text": response_text,
                 "last_assistant": last_assistant,
             }
-            raise Exception(f"LightLLM generate接口调用失败: {json.dumps(err_message)}")
+            # raise Exception(f"LightLLM generate接口调用失败: {json.dumps(err_message)}")
         
+            # 要保存一下轨迹，就不能直接 raise
+            api_response = json.dumps(err_message)
+            
         end_time = time.time()
         query_latency = end_time - start_time
 
@@ -343,44 +346,59 @@ class LightLLMHandler(OSSHandler):
 
 
     @override
-    def _parse_query_response_prompting(self, api_response: Any) -> dict:  
-        model_response = api_response['generated_text'][0]
-        extracted_tool_calls = self._extract_tool_calls(model_response)
-        # extract_content, extracted_tool_calls = self._extract_content_and_tool_calls(model_response)
+    def _parse_query_response_prompting(self, api_response: Any) -> dict:
+        try:
+            model_response = api_response['generated_text'][0]
+            extracted_tool_calls = self._extract_tool_calls(model_response)
+            # extract_content, extracted_tool_calls = self._extract_content_and_tool_calls(model_response)
 
-        reasoning_content = ""
-        cleaned_response = model_response
-        if "</think>" in model_response:
-            parts = model_response.split("</think>")
-            reasoning_content = parts[0].rstrip("\n").split("<think>")[-1].lstrip("\n")
-            cleaned_response = parts[-1].lstrip("\n")
+            reasoning_content = ""
+            cleaned_response = model_response
+            if "</think>" in model_response:
+                parts = model_response.split("</think>")
+                reasoning_content = parts[0].rstrip("\n").split("<think>")[-1].lstrip("\n")
+                cleaned_response = parts[-1].lstrip("\n")
 
-        if len(extracted_tool_calls) > 0:
-            model_responses_message_for_chat_history = {
-                "role": "assistant",
-                "reasoning_content": reasoning_content,
-                "content": "",
-                "tool_calls": extracted_tool_calls,
-            }
-            # model_responses_message_for_chat_history = {
-            #     "role": "assistant",
-            #     "content": extract_content,
-            #     "tool_calls": extracted_tool_calls,
-            # }
+            if len(extracted_tool_calls) > 0:
+                model_responses_message_for_chat_history = {
+                    "role": "assistant",
+                    "reasoning_content": reasoning_content,
+                    "content": "",
+                    "tool_calls": extracted_tool_calls,
+                }
+                # model_responses_message_for_chat_history = {
+                #     "role": "assistant",
+                #     "content": extract_content,
+                #     "tool_calls": extracted_tool_calls,
+                # }
 
-        else:
+            else:
+                model_responses_message_for_chat_history = {
+                    "role": "assistant",
+                    "reasoning_content": reasoning_content,
+                    "content": cleaned_response,
+                }
+            
+            input_token = api_response['prompt_tokens']
+            output_token = api_response['count_output_tokens']
+
+        except Exception as e:
+            cleaned_response = api_response
+            reasoning_content = ""
             model_responses_message_for_chat_history = {
                 "role": "assistant",
                 "reasoning_content": reasoning_content,
                 "content": cleaned_response,
             }
+            input_token = 0
+            output_token = 0
 
         return {
             "model_responses": cleaned_response,
             "reasoning_content": reasoning_content,
             "model_responses_message_for_chat_history": model_responses_message_for_chat_history,
-            "input_token": api_response['prompt_tokens'],
-            "output_token": api_response['count_output_tokens'],
+            "input_token": input_token,
+            "output_token": output_token,
         }
 
     @override

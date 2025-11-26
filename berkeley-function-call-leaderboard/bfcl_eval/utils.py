@@ -9,6 +9,7 @@ from bfcl_eval.constants.category_mapping import *
 from bfcl_eval.constants.default_prompts import (
     ADDITIONAL_SYSTEM_PROMPT_FOR_AGENTIC_RESPONSE_FORMAT,
     DEFAULT_SYSTEM_PROMPT_FORMAT,
+    ADITIONAL_WEB_SEARCH_SYSTEM_PROMPT,
 )
 from bfcl_eval.constants.eval_config import *
 from bfcl_eval.constants.executable_backend_config import (
@@ -748,13 +749,18 @@ def process_agentic_test_case(test_cases: list[dict]) -> list[dict]:
     """
     Agentic test cases need to have a specific response format. We add this to the user query here.
     """
+    if os.getenv("ADD_WEB_SEARCH_SYSTEM_PROMPT", "False") == "True":
+        additional_web_search_system_prompt = ADITIONAL_WEB_SEARCH_SYSTEM_PROMPT
+    else:
+        additional_web_search_system_prompt = "\n"
+    additional_system_prompt_for_agentic_response_format = additional_web_search_system_prompt + ADDITIONAL_SYSTEM_PROMPT_FOR_AGENTIC_RESPONSE_FORMAT
     for entry in test_cases:
         if is_agentic(entry["id"]) and not is_memory_prereq(entry["id"]):
             entry["question"][0].insert(
                 0,
                 {
                     "role": "system",
-                    "content": ADDITIONAL_SYSTEM_PROMPT_FOR_AGENTIC_RESPONSE_FORMAT,
+                    "content": additional_system_prompt_for_agentic_response_format,
                 },
             )
 
