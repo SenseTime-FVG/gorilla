@@ -174,8 +174,8 @@ class LightLLMHandler(OSSHandler):
             formatted_prompt += "<|im_start|>system\n"
             if messages[0]["role"] == "system":
                 formatted_prompt += messages[0]["content"].strip() + "\n\n"
-            if self.enable_thinking:
-                formatted_prompt += "Reason step by step and place the thought process within the <think></think> tags, and provide the final conclusion at the end.\n\n"
+            # if self.enable_thinking:
+            #     formatted_prompt += "Reason step by step and place the thought process within the <think></think> tags, and provide the final conclusion at the end.\n\n"
             formatted_prompt += "# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>"
             for tool in function:
                 formatted_prompt += f"\n{json.dumps(tool)}"
@@ -186,8 +186,8 @@ class LightLLMHandler(OSSHandler):
                 formatted_prompt += (
                     f"<|im_start|>system\n{messages[0]['content']}<|im_end|>\n"
                 )
-            if self.enable_thinking:
-                formatted_prompt += 'Reason step by step and place the thought process within the <think></think> tags, and provide the final conclusion at the end.'
+            # if self.enable_thinking:
+            #     formatted_prompt += 'Reason step by step and place the thought process within the <think></think> tags, and provide the final conclusion at the end.'
 
         last_query_index = len(messages) - 1
         for offset, message in enumerate(reversed(messages)):
@@ -269,6 +269,8 @@ class LightLLMHandler(OSSHandler):
                     formatted_prompt += "<|im_end|>\n"
 
         formatted_prompt += "<|im_start|>assistant\n"
+        if not self.enable_thinking:
+            formatted_prompt += "<think>\n\n</think>\n\n"
         return formatted_prompt
 
     @override
