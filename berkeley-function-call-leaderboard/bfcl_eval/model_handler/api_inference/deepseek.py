@@ -19,7 +19,8 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         super().__init__(model_name, temperature)
         self.model_style = ModelStyle.OPENAI_COMPLETIONS
         self.client = OpenAI(
-            base_url="https://api.deepseek.com", api_key=os.getenv("DEEPSEEK_API_KEY")
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            api_key=os.getenv("DEEPSEEK_API_KEY")
         )
 
     # The deepseek API is unstable at the moment, and will frequently give empty responses, so retry on JSONDecodeError is necessary
@@ -53,9 +54,18 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         elif "DeepSeek-R1" in self.model_name:
             api_model_name = "deepseek-reasoner"
         else:
-            raise ValueError(
-                f"Model name {self.model_name} not yet supported in this method"
-            )
+            api_model_name = self.model_name
+            # raise ValueError(
+            #     f"Model name {self.model_name} not yet supported in this method"
+            # )
+        
+        # 添加给 lightllm v1 接口测试
+        extra_info = {
+            "extra_body": {
+                "max_tokens": 8192,
+                "enable_thinking": True,
+            },
+        }
 
         if len(tools) > 0:
             return self.generate_with_backoff(
@@ -63,12 +73,14 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
                 messages=message,
                 tools=tools,
                 temperature=self.temperature,
+                **extra_info
             )
         else:
             return self.generate_with_backoff(
                 model=api_model_name,
                 messages=message,
                 temperature=self.temperature,
+                **extra_info
             )
 
     @override

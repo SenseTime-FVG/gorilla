@@ -66,6 +66,12 @@ class OpenAICompletionsHandler(BaseHandler):
             "store": False,
         }
 
+        # # 添加给 lightllm v1 接口测试
+        # kwargs["extra_body"] = {
+        #     "max_tokens": 8192,
+        #     "enable_thinking": True,
+        # }
+
         if len(tools) > 0:
             kwargs["tools"] = tools
 
@@ -122,9 +128,35 @@ class OpenAICompletionsHandler(BaseHandler):
     def _add_assistant_message_FC(
         self, inference_data: dict, model_response_data: dict
     ) -> dict:
+        # 解决 content 为 None 的 bug
+        try:
+            content = model_response_data["model_responses_message_for_chat_history"].get("content", "") or ""
+            model_response_data["model_responses_message_for_chat_history"]["content"] = content
+        except Exception as e:
+            pass
+        
+        # =========== 源码 ===========
         inference_data["message"].append(
             model_response_data["model_responses_message_for_chat_history"]
         )
+        # =========== 源码 ===========
+        
+        # # 添加给 lightllm v1 接口测试
+        # api_response_message = model_response_data["model_responses_message_for_chat_history"]
+        # try:
+        #     content = api_response_message.content if api_response_message.content else ""
+        #     reasoning_content = api_response_message.reasoning_content if api_response_message.reasoning_content else ""
+        # except Exception as e:
+        #     content = ""
+        #     reasoning_content = ""
+        
+        # inference_data["message"].append(
+        #     {
+        #         "role": "assistant",
+        #         "content": content,
+        #         "reasoning_content": reasoning_content,
+        #     }
+        # )
         return inference_data
 
     def _add_execution_results_FC(
@@ -190,6 +222,7 @@ class OpenAICompletionsHandler(BaseHandler):
         # Capture the reasoning trace so it can be logged to the local result file.
         if hasattr(message, "reasoning_content"):
             response_data["reasoning_content"] = message.reasoning_content
+            response_data["model_responses_message_for_chat_history"]["reasonint_content"] = message.reasoning_content
 
     #### Prompting methods ####
 
