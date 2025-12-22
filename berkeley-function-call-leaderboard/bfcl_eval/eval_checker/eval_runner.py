@@ -742,7 +742,7 @@ def runner(model_names, test_categories, result_dir, score_dir, args):
             if test_category not in test_categories:
                 continue
 
-            if "lightllm" in model_name:
+            if model_name.endswith("-lightllm"):
                 handler = get_handler_lightllm(model_name_escaped, args)
             else:
                 handler = get_handler(model_name_escaped)
