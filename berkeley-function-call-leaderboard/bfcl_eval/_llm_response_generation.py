@@ -68,13 +68,24 @@ def get_args():
     return args
 
 
-def build_handler(model_name, temperature):
+def build_handler(model_name, args):
+    # 额外传的参数
+    extra_body = {
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "repetition_penalty": args.repetition_penalty,
+        "max_new_tokens": args.max_new_tokens,
+        "max_tokens": args.max_new_tokens,
+        "enable_thinking": args.enable_thinking,
+        "chat_template_kwargs": {"enable_thinking": args.enable_thinking},
+    }
     config = MODEL_CONFIG_MAPPING[model_name]
     handler = config.model_handler(
         model_name=config.model_name,
-        temperature=temperature,
+        temperature=args.temperature,
         registry_name=model_name,
         is_fc_model=config.is_fc_model,
+        **extra_body
     )
     return handler
 
@@ -223,7 +234,7 @@ def generate_results(args, model_name, test_cases_total):
     if model_name.endswith("-lightllm"):
         handler = build_handler_lightllm(model_name, args)
     else:
-        handler = build_handler(model_name, args.temperature)
+        handler = build_handler(model_name, args)
     
     num_threads = args.num_threads
 

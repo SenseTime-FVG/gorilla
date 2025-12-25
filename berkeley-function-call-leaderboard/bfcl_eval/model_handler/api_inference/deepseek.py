@@ -32,6 +32,9 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
             base_url=os.getenv("DEEPSEEK_BASE_URL", base),
             api_key=os.getenv("DEEPSEEK_API_KEY"),
         )
+        
+        # 添加额外的参数
+        self.extra_body = kwargs
 
     # The deepseek API is unstable at the moment, and will frequently give empty responses, so retry on JSONDecodeError is necessary
     @retry_with_backoff(error_type=[RateLimitError, json.JSONDecodeError], error_message_pattern=r".*Insufficient Balance.*")
@@ -58,12 +61,7 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         inference_data["inference_input_log"] = {"message": repr(message), "tools": tools}
         
         # 添加给 lightllm v1 接口测试
-        extra_info = {
-            "extra_body": {
-                "max_tokens": 8192,
-                "enable_thinking": True,
-            },
-        }
+        extra_info = {"extra_body": self.extra_body}
 
         if len(tools) > 0:
             return self.generate_with_backoff(
