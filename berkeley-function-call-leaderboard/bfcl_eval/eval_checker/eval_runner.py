@@ -26,9 +26,11 @@ from types import SimpleNamespace
 def get_handler(model_name: str) -> BaseHandler:
     config = MODEL_CONFIG_MAPPING[model_name]
     handler: BaseHandler = config.model_handler(
-        model_name, temperature=0
-    )  # Temperature doesn't matter for evaluation
-    handler.is_fc_model = config.is_fc_model
+        model_name=config.model_name,
+        temperature=0,
+        registry_name=model_name,
+        is_fc_model=config.is_fc_model,
+    )
     return handler
 
 
@@ -37,9 +39,47 @@ def get_handler_lightllm(model_name, args):
     handler: BaseHandler = config.model_handler(
         model_name=config.model_name,
         temperature=args.temperature,
+        registry_name=model_name,
+        is_fc_model=config.is_fc_model,
         args=args
     )
     return handler
+
+
+def _subset_entries_by_model_ids(
+    model_result_entries: list[dict],
+    prompt_entries: list[dict],
+    ground_truth_entries: list[dict] = None,  # Irrelevance entries don't have ground truth
+    allow_missing: bool = False,
+):
+    """
+    Filter the prompt and ground truth entries so that its order/length matches the IDs present in `model_result`. When `allow_missing` is False, all IDs must be present; otherwise, any missing IDs are silently ignored.
+    """
+    if not model_result_entries:
+        return [], []
+
+    if not allow_missing and (len(model_result_entries) != len(prompt_entries)):
+        raise ValueError(
+            f"Length of model result ({len(model_result_entries)}) does not match length of test entries ({len(prompt_entries)}). If you intended to run only on a subset (eg. entries present in the model result), please pass the `--partial-eval` flag."
+        )
+
+    all_present_ids = {entry["id"]: entry for entry in model_result_entries}
+
+    # Align prompt and ground-truth using the *index* of the prompt entry. Some
+    # ground-truth items use a different ID format, but the order between the
+    # prompt list and the ground-truth list is guaranteed to be identical. We
+    # therefore keep the element at index *i* in both lists whenever the
+    # prompt entry at that index has an ID present in the model results.
+    filtered_prompt_entries: list[dict] = []
+    filtered_ground_truth_entries: list[dict] = []
+    for idx, prompt_entry in enumerate(prompt_entries):
+        if prompt_entry["id"] in all_present_ids:
+            filtered_prompt_entries.append(prompt_entry)
+            # ground_truth_entries and prompt_entries are aligned by index.
+            if ground_truth_entries is not None:
+                filtered_ground_truth_entries.append(ground_truth_entries[idx])
+
+    return filtered_prompt_entries, filtered_ground_truth_entries
 
 
 def _evaluate_single_agentic_entry(
@@ -85,7 +125,9 @@ def _evaluate_single_agentic_entry(
     for model_result_item in model_result_list[0]:
         # model_result_item is per step
         try:
-            decoded_result: list[str] = handler.decode_execute(model_result_item, has_tool_call_tag=False)
+            decoded_result: list[str] = handler.decode_execute(
+                model_result_item, has_tool_call_tag=False
+            )
             if is_empty_execute_response(decoded_result):
                 last_unsuccessful_decoding_message = model_result_item
                 continue
@@ -193,7 +235,9 @@ def _evaluate_single_multi_turn_entry(
         for model_result_item in single_turn_model_result_list:
             # model_result_item is per step
             try:
-                decoded_result: list[str] = handler.decode_execute(model_result_item, has_tool_call_tag=False)
+                decoded_result: list[str] = handler.decode_execute(
+                    model_result_item, has_tool_call_tag=False
+                )
                 if is_empty_execute_response(decoded_result):
                     # Empty output is not considered as a valid function call
                     continue
@@ -340,7 +384,8 @@ def _evaluate_single_ast_entry(
         model_result_item,
         possible_answer_item,
         language,
-        test_category,
+        # format sensitivity has parallel, multiple cases which is encoded in index
+        test_category if test_category != 'format_sensitivity' else index.split(':')[-1],
         model_name,
     )
 
@@ -641,6 +686,7 @@ def evaluate_task(
     model_name,
     handler,
     leaderboard_table,
+    allow_missing: bool = False,
 ):
     print(f"🔍 Running test: {test_category}")
 
@@ -652,6 +698,10 @@ def evaluate_task(
     )
 
     if is_relevance_or_irrelevance(test_category):
+        prompt, _ = _subset_entries_by_model_ids(
+            model_result, prompt, None, allow_missing=allow_missing
+        )
+
         accuracy, total_count = relevance_file_runner(
             handler, model_result, prompt, model_name, test_category, score_dir
         )
@@ -659,6 +709,14 @@ def evaluate_task(
     else:
         # Find the corresponding possible answer entries
         possible_answer = load_ground_truth_entry(test_category)
+        # Sanity: prompt and ground truth should be 1:1
+        assert len(prompt) == len(
+            possible_answer
+        ), f"Length of ground truth ({len(possible_answer)}) should match prompt entries ({len(prompt)})."
+
+        prompt, possible_answer = _subset_entries_by_model_ids(
+            model_result, prompt, possible_answer, allow_missing=allow_missing
+        )
 
         if is_format_sensitivity(test_category):
             accuracy, total_count = format_sensitivity_runner(
@@ -711,7 +769,9 @@ def evaluate_task(
     return leaderboard_table
 
 
-def runner(model_names, test_categories, result_dir, score_dir, args):
+def runner(
+    model_names, test_categories, result_dir, score_dir, args, allow_missing: bool = False
+):
 
     # A dictionary to store the evaluation scores.
     # Key is model name, value is a dictionary with keys as test category
@@ -766,6 +826,7 @@ def runner(model_names, test_categories, result_dir, score_dir, args):
                 model_name,
                 handler,
                 leaderboard_table,
+                allow_missing=allow_missing,
             )
 
     # This function reads all the score files from local folder and updates the
@@ -776,7 +837,7 @@ def runner(model_names, test_categories, result_dir, score_dir, args):
     generate_leaderboard_csv(leaderboard_table, score_dir)
 
 
-def main(model, test_categories, result_dir, score_dir):
+def main(model, test_categories, result_dir, score_dir, partial_eval: bool = False):
     if result_dir is None:
         if type(model) is not list:
             model = [model]
@@ -809,11 +870,22 @@ def main(model, test_categories, result_dir, score_dir):
     eval_args = SimpleNamespace(temperature=0.6, lightllm_url="", top_p=0.95, top_k=20, repetition_penalty=1.1, max_new_tokens=32768, stop_tokens="<|im_end|>", do_sample=True, skip_special_tokens=False, add_special_tokens=False, enable_thinking=False)
 
     # Driver function to run the evaluation for all categories involved.
-    runner(model_names, all_test_categories, result_dir, score_dir, eval_args)
+    runner(
+        model_names,
+        all_test_categories,
+        result_dir,
+        score_dir,
+        eval_args,
+        allow_missing=partial_eval,
+    )
 
     print(
         f"🏁 Evaluation completed. See {score_dir / 'data_overall.csv'} for overall evaluation results on BFCL V4."
     )
+    if partial_eval:
+        print(
+            "⚠️  Partial evaluation for a single category is enabled (--partial-run flag is set). Accuracy scores are computed only on the subset of entries present in the model result files, which may differ from a full evaluation and from the official leaderboard score."
+        )
     print(
         f"See {score_dir / 'data_live.csv'}, {score_dir / 'data_non_live.csv'}, {score_dir / 'data_multi_turn.csv'}, {score_dir / 'data_agentic.csv'} and {score_dir / 'data_format_sensitivity.csv'} for detailed evaluation results on each sub-section categories respectively."
     )
@@ -845,6 +917,12 @@ if __name__ == "__main__":
         type=str,
         help="Path to the folder where the evaluation score files will be stored; relative to the `berkeley-function-call-leaderboard` root folder",
     )
+    parser.add_argument(
+        "--partial-eval",
+        default=False,
+        action="store_true",
+        help="Run evaluation on a partial set of benchmark entries (eg. entries present in the model result files) without raising for missing IDs.",
+    )
 
     args = parser.parse_args()
 
@@ -854,4 +932,5 @@ if __name__ == "__main__":
         args.test_category,
         args.result_dir,
         args.score_dir,
+        partial_eval=args.partial_eval,
     )

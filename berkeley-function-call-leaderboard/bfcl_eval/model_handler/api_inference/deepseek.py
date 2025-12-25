@@ -14,17 +14,27 @@ from openai import OpenAI, RateLimitError
 from overrides import override
 
 
+
 class DeepSeekAPIHandler(OpenAICompletionsHandler):
-    def __init__(self, model_name, temperature) -> None:
-        super().__init__(model_name, temperature)
+    def __init__(
+        self,
+        model_name,
+        temperature,
+        registry_name,
+        is_fc_model,
+        **kwargs,
+    ) -> None:
+        super().__init__(model_name, temperature, registry_name, is_fc_model, **kwargs)
         self.model_style = ModelStyle.OPENAI_COMPLETIONS
+        base = "https://api.deepseek.com"
+
         self.client = OpenAI(
-            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            api_key=os.getenv("DEEPSEEK_API_KEY")
+            base_url=os.getenv("DEEPSEEK_BASE_URL", base),
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
         )
 
     # The deepseek API is unstable at the moment, and will frequently give empty responses, so retry on JSONDecodeError is necessary
-    @retry_with_backoff(error_type=[RateLimitError, json.JSONDecodeError])
+    @retry_with_backoff(error_type=[RateLimitError, json.JSONDecodeError], error_message_pattern=r".*Insufficient Balance.*")
     def generate_with_backoff(self, **kwargs):
         """
         Per the DeepSeek API documentation:
@@ -46,18 +56,6 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         message: list[dict] = inference_data["message"]
         tools = inference_data["tools"]
         inference_data["inference_input_log"] = {"message": repr(message), "tools": tools}
-
-        # Source https://api-docs.deepseek.com/quick_start/pricing
-        # This will need to be updated if newer models are released.
-        if "DeepSeek-V3" in self.model_name:
-            api_model_name = "deepseek-chat"
-        elif "DeepSeek-R1" in self.model_name:
-            api_model_name = "deepseek-reasoner"
-        else:
-            api_model_name = self.model_name
-            # raise ValueError(
-            #     f"Model name {self.model_name} not yet supported in this method"
-            # )
         
         # 添加给 lightllm v1 接口测试
         extra_info = {
@@ -69,7 +67,7 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
 
         if len(tools) > 0:
             return self.generate_with_backoff(
-                model=api_model_name,
+                model=self.model_name,
                 messages=message,
                 tools=tools,
                 temperature=self.temperature,
@@ -77,7 +75,7 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
             )
         else:
             return self.generate_with_backoff(
-                model=api_model_name,
+                model=self.model_name,
                 messages=message,
                 temperature=self.temperature,
                 **extra_info
@@ -97,15 +95,8 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         message: list[dict] = inference_data["message"]
         inference_data["inference_input_log"] = {"message": repr(message)}
 
-        if "DeepSeek-R1" in self.model_name:
-            api_model_name = "deepseek-reasoner"
-        else:
-            raise ValueError(
-                f"Model name {self.model_name} not yet supported in this method"
-            )
-
         return self.generate_with_backoff(
-            model=api_model_name,
+            model=self.model_name,
             messages=message,
         )
 

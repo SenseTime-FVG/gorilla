@@ -20,8 +20,16 @@ from overrides import EnforceOverrides, final, override
 
 
 class OSSHandler(BaseHandler, EnforceOverrides):
-    def __init__(self, model_name, temperature, dtype="bfloat16") -> None:
-        super().__init__(model_name, temperature)
+    def __init__(
+        self,
+        model_name,
+        temperature,
+        registry_name,
+        is_fc_model,
+        dtype="bfloat16",
+        **kwargs,
+    ) -> None:
+        super().__init__(model_name, temperature, registry_name, is_fc_model, **kwargs)
         self.model_name_huggingface = model_name
         self.model_style = ModelStyle.OSSMODEL
         self.dtype = dtype
@@ -176,14 +184,10 @@ class OSSHandler(BaseHandler, EnforceOverrides):
                     raise ValueError(f"Backend {backend} is not supported.")
 
                 def log_subprocess_output(pipe, stop_event):
-                    # Read lines until stop event is set
-                    while not stop_event.is_set():
-                        line = pipe.readline()
-                        if line:
+                    # Read lines until the pipe is closed (EOF)
+                    for line in iter(pipe.readline, ""):
+                        if not stop_event.is_set():
                             print(line, end="")
-                        else:
-                            break
-                    pipe.close()
                     print("server log tracking thread stopped successfully.")
 
                 # Start threads to read and print stdout and stderr

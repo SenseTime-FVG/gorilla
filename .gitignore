@@ -21,9 +21,11 @@ goex/docker/misc/images.json
 
 # Ignore inference results
 berkeley-function-call-leaderboard/result/
+berkeley-function-call-leaderboard/bfcl_eval/result/
 
 # Ignore leaderboard score
 berkeley-function-call-leaderboard/score/
+berkeley-function-call-leaderboard/bfcl_eval/score/
 
 # Ignore environment variables
 berkeley-function-call-leaderboard/.env
@@ -35,6 +37,9 @@ berkeley-function-call-leaderboard/test_case_ids_to_generate.json
 
 # Ignore multi turn ground truth conversation log
 berkeley-function-call-leaderboard/bfcl_eval/scripts/ground_truth_conversation/
+
+# Ignore lock files
+berkeley-function-call-leaderboard/**/*.lock
 
 .direnv/
 .venv

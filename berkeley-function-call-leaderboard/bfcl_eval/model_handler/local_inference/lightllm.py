@@ -28,8 +28,8 @@ class LightLLMHandler(OSSHandler):
     3. 使用 --skip-server-setup 参数跳过服务器设置
     """
 
-    def __init__(self, model_name, temperature, args) -> None:
-        super().__init__(model_name, temperature)
+    def __init__(self, model_name, temperature, registry_name, is_fc_model, args) -> None:
+        super().__init__(model_name, temperature, registry_name, is_fc_model)
         
         self.model_name = model_name
         

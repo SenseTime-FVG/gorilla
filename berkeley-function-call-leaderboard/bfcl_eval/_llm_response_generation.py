@@ -1,29 +1,27 @@
 import argparse
+import heapq
 import multiprocessing as mp
 import os
-import shutil
-import traceback
-from collections import defaultdict, deque
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-import threading
 import queue
+import shutil
+import threading
+import traceback
+from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from copy import deepcopy
-from typing import TYPE_CHECKING
 
 from bfcl_eval.constants.eval_config import (
     PROJECT_ROOT,
+    RESULT_FILE_PATTERN,
     RESULT_PATH,
     TEST_IDS_TO_GENERATE_PATH,
-    RESULT_FILE_PATTERN,
 )
 from bfcl_eval.constants.model_config import MODEL_CONFIG_MAPPING
 from bfcl_eval.eval_checker.eval_runner_helper import load_file
-from bfcl_eval.constants.enums import ModelStyle
-from bfcl_eval.utils import *
-from tqdm import tqdm
-
 from bfcl_eval.model_handler.base_handler import BaseHandler
 from bfcl_eval.model_handler.local_inference.base_oss_handler import OSSHandler
+from bfcl_eval.utils import *
+from tqdm import tqdm
 
 
 def get_args():
@@ -36,8 +34,8 @@ def get_args():
     # Parameters for the model that you want to test.
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--include-input-log", action="store_true", default=False)
-    parser.add_argument("--exclude-state-log", action="store_true", default=True)
-    parser.add_argument("--num-threads", default=1, type=int)
+    parser.add_argument("--exclude-state-log", action="store_true", default=False)
+    parser.add_argument("--num-threads", required=False, type=int, default=1)
     parser.add_argument("--num-gpus", default=1, type=int)
     parser.add_argument("--backend", default="vllm", type=str, choices=["vllm", "sglang"])
     parser.add_argument("--gpu-memory-utilization", default=0.9, type=float)
@@ -72,9 +70,12 @@ def get_args():
 
 def build_handler(model_name, temperature):
     config = MODEL_CONFIG_MAPPING[model_name]
-    handler = config.model_handler(model_name, temperature)
-    # Propagate config flags to the handler instance
-    handler.is_fc_model = config.is_fc_model
+    handler = config.model_handler(
+        model_name=config.model_name,
+        temperature=temperature,
+        registry_name=model_name,
+        is_fc_model=config.is_fc_model,
+    )
     return handler
 
 
@@ -83,6 +84,8 @@ def build_handler_lightllm(model_name, args):
     handler = config.model_handler(
         model_name=config.model_name,
         temperature=args.temperature,
+        registry_name=model_name,
+        is_fc_model=config.is_fc_model,
         args=args,
     )
     return handler
@@ -188,7 +191,7 @@ def multi_threaded_inference(handler, test_case, include_input_log, exclude_stat
 
     try:
         result, metadata = handler.inference(
-            deepcopy(test_case), include_input_log, exclude_state_log
+            test_case, include_input_log, exclude_state_log
         )
     except Exception as e:
         # This is usually the case when the model getting stuck on one particular test case.
@@ -202,7 +205,7 @@ def multi_threaded_inference(handler, test_case, include_input_log, exclude_stat
             + traceback.format_exc(limit=10)
             + "-" * 100
         )
-        print(error_block)
+        tqdm.write(error_block)
 
         result = f"Error during inference: {str(e)}"
         metadata = {"traceback": traceback.format_exc()}
@@ -229,11 +232,15 @@ def generate_results(args, model_name, test_cases_total):
         is_oss_model = True
         # For OSS models, if the user didn't explicitly set the number of threads,
         # we default to 100 threads to speed up the inference.
-        if num_threads == 1:
-            num_threads = LOCAL_SERVER_MAX_CONCURRENT_REQUEST
+        num_threads = (
+            args.num_threads
+            if args.num_threads is not None
+            else LOCAL_SERVER_MAX_CONCURRENT_REQUEST
+        )
     else:
         handler: BaseHandler
         is_oss_model = False
+        num_threads = args.num_threads if args.num_threads is not None else 1
 
     # Use a separate thread to write the results to the file to avoid concurrent IO issues
     def _writer():
@@ -272,23 +279,29 @@ def generate_results(args, model_name, test_cases_total):
 
         id_to_test_case = {test_case["id"]: test_case for test_case in test_cases_total}
 
-        ready_queue = deque(
-            [
-                test_case_id
-                for test_case_id, dependency_ids in dependencies.items()
-                if not dependency_ids
-            ]
-        )
+        ready_queue = [
+            (sort_key(id_to_test_case[test_case_id]), test_case_id)
+            for test_case_id, dependency_ids in dependencies.items()
+            if not dependency_ids
+        ]
+        heapq.heapify(ready_queue)
         in_flight: dict[Future, str] = {}  # future -> test_case_id
         completed = set()
 
         with ThreadPoolExecutor(max_workers=num_threads) as pool, tqdm(
-            total=len(test_cases_total), desc=f"Generating results for {model_name}"
+            total=len(test_cases_total),
+            desc=f"Generating results for {model_name}",
+            position=0,
+            leave=True,
+            dynamic_ncols=True,
+            mininterval=0.2,
+            smoothing=0.1,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
         ) as pbar:
 
             # seed initial ready tasks
             while ready_queue and len(in_flight) < num_threads:
-                test_case_id = ready_queue.popleft()
+                _, test_case_id = heapq.heappop(ready_queue)
                 test_case = id_to_test_case[test_case_id]
                 future = pool.submit(
                     multi_threaded_inference,
@@ -317,11 +330,14 @@ def generate_results(args, model_name, test_cases_total):
                     for child_id in children_of[test_case_id]:
                         dependencies[child_id].discard(test_case_id)
                         if not dependencies[child_id]:
-                            ready_queue.append(child_id)
+                            heapq.heappush(
+                                ready_queue,
+                                (sort_key(id_to_test_case[child_id]), child_id),
+                            )
 
                 # refill the pool up to max_workers
                 while ready_queue and len(in_flight) < num_threads:
-                    test_case_id = ready_queue.popleft()
+                    _, test_case_id = heapq.heappop(ready_queue)
                     test_case = id_to_test_case[test_case_id]
                     future = pool.submit(
                         multi_threaded_inference,
@@ -370,16 +386,16 @@ def main(args):
                 "• For officially supported models, please refer to `SUPPORTED_MODELS.md`.\n"
                 "• For running new models, please refer to `README.md` and `CONTRIBUTING.md`."
             )
-    print(f"Generating results for {args.model}")
+    tqdm.write(f"Generating results for {args.model}")
     if args.run_ids:
-        print("Running specific test cases. Ignoring `--test-category` argument.")
+        tqdm.write("Running specific test cases. Ignoring `--test-category` argument.")
     else:
-        print(f"Running full test cases for categories: {all_test_categories}.")
+        tqdm.write(f"Running full test cases for categories: {all_test_categories}.")
 
     if any(is_format_sensitivity(test_category) for test_category in all_test_categories):
         for model_name in args.model:
             if MODEL_CONFIG_MAPPING[model_name].is_fc_model:
-                print(
+                tqdm.write(
                     "⚠️ Warning: Format sensitivity test cases are only supported for prompting (non-FC) models. "
                     f"Since {model_name} is a FC model based on its config, the format sensitivity test cases will be skipped."
                 )
@@ -394,11 +410,11 @@ def main(args):
             args,
             model_name,
             all_test_categories,
-            all_test_entries_involved,
+            deepcopy(all_test_entries_involved),
         )
 
         if len(test_cases_total) == 0:
-            print(
+            tqdm.write(
                 f"✅ All selected test cases have been previously generated for {model_name}. No new test cases to generate."
             )
         else:
