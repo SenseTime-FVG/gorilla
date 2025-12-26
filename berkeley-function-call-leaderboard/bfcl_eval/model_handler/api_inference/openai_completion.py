@@ -244,7 +244,7 @@ class OpenAICompletionsHandler(BaseHandler):
         # Capture the reasoning trace so it can be logged to the local result file.
         if hasattr(message, "reasoning_content"):
             response_data["reasoning_content"] = message.reasoning_content
-            response_data["model_responses_message_for_chat_history"]["reasonint_content"] = message.reasoning_content
+            response_data["model_responses_message_for_chat_history"]["reasoning_content"] = message.reasoning_content
 
     #### Prompting methods ####
 
