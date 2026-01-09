@@ -14,9 +14,9 @@ from bfcl_eval.model_handler.utils import (
     format_execution_results_prompting,
     retry_with_backoff,
     system_prompt_pre_processing_chat_model,
+    func_doc_language_specific_pre_processing
 )
 from openai import OpenAI, RateLimitError
-from bfcl_eval.model_handler.utils import func_doc_language_specific_pre_processing
 
 
 class OpenAICompletionsHandler(BaseHandler):
@@ -156,10 +156,14 @@ class OpenAICompletionsHandler(BaseHandler):
     def _add_assistant_message_FC(
         self, inference_data: dict, model_response_data: dict
     ) -> dict:
-        # 解决 content 为 None 的 bug
         try:
+            # 解决 content 为 None 的 bug
             content = model_response_data["model_responses_message_for_chat_history"].get("content", "") or ""
             model_response_data["model_responses_message_for_chat_history"]["content"] = content
+            # 有 tool_calls 时，就把 content 手动清空
+            tool_calls = model_response_data["model_responses_message_for_chat_history"].get("tool_calls", []) or []
+            if tool_calls:
+                model_response_data["model_responses_message_for_chat_history"]["content"] = ""
         except Exception as e:
             pass
         
