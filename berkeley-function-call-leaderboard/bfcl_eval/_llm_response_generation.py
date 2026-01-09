@@ -76,6 +76,10 @@ def build_handler(model_name, args):
         "repetition_penalty": args.repetition_penalty,
         "max_new_tokens": args.max_new_tokens,
         "max_tokens": args.max_new_tokens,
+        "stop": [args.stop_tokens],
+        "do_sample": args.do_sample,
+        "skip_special_tokens": args.skip_special_tokens,
+        "add_special_tokens": args.add_special_tokens,
         "enable_thinking": args.enable_thinking,
         "chat_template_kwargs": {"enable_thinking": args.enable_thinking},
     }
