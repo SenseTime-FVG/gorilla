@@ -120,13 +120,16 @@ class OpenAICompletionsHandler(BaseHandler):
 
     def _parse_query_response_FC(self, api_response: Any) -> dict:
         try:
-            model_responses = [
-                {func_call.function.name: func_call.function.arguments}
-                for func_call in api_response.choices[0].message.tool_calls
-            ]
-            tool_call_ids = [
-                func_call.id for func_call in api_response.choices[0].message.tool_calls
-            ]
+            # 当 tool_calls 为空时，直接返回 content（主要是 FC 模式下 agentic 时的判分会有问题
+            tool_calls = api_response.choices[0].message.tool_calls
+            if not tool_calls:
+                model_responses = api_response.choices[0].message.content
+                tool_call_ids = []
+            else:
+                model_responses = [
+                    {func_call.function.name: func_call.function.arguments} for func_call in tool_calls
+                ]
+                tool_call_ids = [func_call.id for func_call in tool_calls]
         except:
             model_responses = api_response.choices[0].message.content
             tool_call_ids = []
