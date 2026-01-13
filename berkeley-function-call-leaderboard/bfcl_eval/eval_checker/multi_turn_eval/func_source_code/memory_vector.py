@@ -12,6 +12,7 @@ from bfcl_eval.eval_checker.multi_turn_eval.func_source_code.memory_api_metaclas
 # TODO: Find a common OpenMP runtime to avoid this issue
 from sentence_transformers import SentenceTransformer
 import faiss
+from pathlib import Path
 
 # isort: on
 
@@ -23,7 +24,19 @@ MAX_ARCHIVAL_MEMORY_ENTRY_LENGTH = 2000
 
 
 # Use a global SentenceTransformer model for all vector stores.
-ENCODER = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+# ENCODER = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+# 优先从本地路径加载，规避网络问题
+MODEL_NAME = "all-MiniLM-L6-v2"
+_local_model_dir = Path(__file__).resolve().parents[3] / "models" / MODEL_NAME
+try:
+    if _local_model_dir.exists():
+        ENCODER = SentenceTransformer(str(_local_model_dir), device="cpu")
+    else:
+        ENCODER = SentenceTransformer(MODEL_NAME, device="cpu")
+except Exception:
+    # Fallback to online name if local load failed
+    ENCODER = SentenceTransformer(MODEL_NAME, device="cpu")
+
 ENCODER_DIM = ENCODER.get_sentence_embedding_dimension()
 
 
