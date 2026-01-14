@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from types import SimpleNamespace
 from typing import Any
 
 from bfcl_eval.model_handler.api_inference.openai_completion import OpenAICompletionsHandler
@@ -62,6 +63,59 @@ class DeepSeekAPIHandler(OpenAICompletionsHandler):
         
         # 添加给 lightllm v1 接口测试
         extra_info = {"extra_body": self.extra_body}
+        
+        # 检测 message，如果太长的话就直接抛出异常
+        try:
+            # 安全检查：确保 message 不为空
+            if not message:
+                raise ValueError("Message list is empty")
+            
+            # 安全检查：获取最后一个消息的 content
+            last_message = message[-1]
+            if "content" not in last_message:
+                raise ValueError("Last message does not have 'content' field")
+            
+            last_message_content = last_message["content"]
+            # 安全检查：确保 content 是字符串类型
+            if not isinstance(last_message_content, str):
+                raise ValueError(f"Last message content is not a string, got {type(last_message_content)}")
+            
+            # 检查长度
+            if len(last_message_content) > 500000:
+                # 尝试找到第一个 user 消息作为 user_query
+                user_query = ""
+                for msg in message:
+                    if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                        user_query = msg["content"]
+                        break
+                if not user_query:
+                    user_query = message[0].get("content", "") if message else ""
+                    if isinstance(user_query, str):
+                        user_query = user_query
+                    else:
+                        user_query = str(user_query)
+                
+                raise ValueError(f"DeepSeek API Handler: last message content too long ({len(last_message_content)} chars). User query: {user_query}")
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            # 只捕获预期的异常类型，避免捕获 KeyboardInterrupt, SystemExit 等
+            # 创建一个模拟的 API 响应对象，包含后续解析所需的所有字段
+            # 将异常信息放到 content 中，方便后续查看
+            error_content = f"Error during message validation, skipped API call. Error: {str(e)}"
+            print(f"DeepSeek API Handler error: {error_content}")
+            fake_message = SimpleNamespace(
+                content=error_content,
+                tool_calls=None,
+            )
+            fake_choice = SimpleNamespace(message=fake_message)
+            fake_usage = SimpleNamespace(
+                prompt_tokens=0,
+                completion_tokens=0,
+            )
+            fake_api_response = SimpleNamespace(
+                choices=[fake_choice],
+                usage=fake_usage,
+            )
+            return fake_api_response, 0.0
 
         if len(tools) > 0:
             return self.generate_with_backoff(

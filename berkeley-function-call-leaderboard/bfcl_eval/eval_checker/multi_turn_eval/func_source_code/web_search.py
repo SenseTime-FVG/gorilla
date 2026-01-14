@@ -295,6 +295,8 @@ class WebSearchAPI:
             # Flip a coin to simulate a random error
             # if self._random.random() < 0.95:
             #     return {"error": self._fake_requests_get_error_msg(url)}
+            
+            response.text = response.text[:100000]  # 强制截断
 
             # Process the response based on the mode
             if mode == "raw":
