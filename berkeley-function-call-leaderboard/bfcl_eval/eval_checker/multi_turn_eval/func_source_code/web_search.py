@@ -296,11 +296,15 @@ class WebSearchAPI:
             # if self._random.random() < 0.95:
             #     return {"error": self._fake_requests_get_error_msg(url)}
             
-            response.text = response.text[:100000]  # 强制截断
 
             # Process the response based on the mode
             if mode == "raw":
-                return {"content": response.text}
+                if len(response.text) > 200000:
+                    response_text = response.text[:200000]
+                    print(f"fetch url content too long: {len(response.text)}, truncated to 200000 chars")
+                else:
+                    response_text = response.text
+                return {"content": response_text}   # 强制截断
 
             elif mode == "markdown":
                 converter = html2text.HTML2Text()
