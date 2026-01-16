@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from typing import Dict
 
@@ -130,7 +131,9 @@ class MemoryAPI_rec_sum(MemoryAPI):
                 "error": f"Entry will be too long after replacing. Please shorten the entry to less than {MAX_MEMORY_ENTRY_LENGTH} characters."
             }
 
-        self.memory = self.memory.replace(old_text, new_text)
+        # 复读 replace 只替换第一次出现的内容
+        # self.memory = self.memory.replace(old_text, new_text)
+        self.memory = re.sub(old_text, new_text, self.memory, count=1)
         return {"status": "Memory replaced."}
 
     def memory_retrieve(self) -> Dict[str, str]:
