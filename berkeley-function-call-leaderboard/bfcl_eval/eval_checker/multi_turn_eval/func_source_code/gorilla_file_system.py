@@ -263,7 +263,7 @@ class GorillaFileSystem:
         """
         path = []
         dir = self._current_dir
-        while dir is not None and dir.name != self.root:
+        while dir is not None and dir != self.root:
             path.append(dir.name)
             dir = dir.parent
         return {"current_working_directory": "/" + "/".join(reversed(path))}
@@ -312,7 +312,7 @@ class GorillaFileSystem:
                 return {"error": "Current directory is already the root. Cannot go back."}
             else:
                 return {"error": "cd: ..: No such directory"}
-            return {}
+            return {"current_working_directory": self._current_dir.name}
 
         # Handle absolute or relative paths
         target_dir = self._navigate_to_directory(folder)
@@ -379,9 +379,13 @@ class GorillaFileSystem:
 
         if file_name:
             if file_name in self._current_dir.contents:
-                self._current_dir._get_item(file_name)._write(content)
+                item = self._current_dir._get_item(file_name)
+                if isinstance(item, File):
+                    item._write(content)
+                else:
+                    return {"error": f"echo: cannot write to '{file_name}': Is a directory"}
             else:
-                return {"error": f"echo: cannot write to '{file_name}': No such file"}
+                self._current_dir._add_file(file_name, content)
         else:
             return {"terminal_output": content}
 
@@ -656,7 +660,7 @@ class GorillaFileSystem:
                         dest_item._add_file(source, item.content)
                     else:
                         dest_item._add_directory(source)
-                        dest_item.contents[source].contents = item.contents
+                        dest_item.contents[source].contents = deepcopy(item.contents)
                     return {"result": f"'{source}' moved to '{destination}/{source}'"}
             else:
                 return {
@@ -669,7 +673,7 @@ class GorillaFileSystem:
                 self._current_dir._add_file(destination, item.content)
             else:
                 self._current_dir._add_directory(destination)
-                self._current_dir.contents[destination].contents = item.contents
+                self._current_dir.contents[destination].contents = deepcopy(item.contents)
             return {"result": f"'{source}' moved to '{destination}'"}
 
     def rm(self, file_name: str) -> Dict[str, str]:
@@ -756,8 +760,8 @@ class GorillaFileSystem:
             dest_item = self._current_dir._get_item(destination)
             if isinstance(dest_item, Directory):
                 # Copy source into the destination directory
-                new_destination = f"{destination}/{source}"
-                if new_destination in dest_item.contents:
+                # Inside dest_item, the key should be just the source name
+                if source in dest_item.contents:
                     return {
                         "error": f"cp: cannot copy '{source}' to '{destination}/{source}': File exists"
                     }
@@ -766,7 +770,7 @@ class GorillaFileSystem:
                         dest_item._add_file(source, item.content)
                     else:
                         dest_item._add_directory(source)
-                        dest_item.contents[source].contents = item.contents.copy()
+                        dest_item.contents[source].contents = deepcopy(item.contents)
                     return {"result": f"'{source}' copied to '{destination}/{source}'"}
             else:
                 return {
@@ -778,7 +782,7 @@ class GorillaFileSystem:
                 self._current_dir._add_file(destination, item.content)
             else:
                 self._current_dir._add_directory(destination)
-                self._current_dir.contents[destination].contents = item.contents.copy()
+                self._current_dir.contents[destination].contents = deepcopy(item.contents)
             return {"result": f"'{source}' copied to '{destination}'"}
 
     def _navigate_to_directory(
@@ -827,8 +831,330 @@ class GorillaFileSystem:
         elif "-" in positions:
             start, end = positions.split("-")
             start = int(start) if start else 1
-            end = int(end) if end else float("inf")
-            result.extend(range(start, end + 1))
+            # If end is empty (e.g. "3-"), treat it as a single position "start"
+            # instead of trying to create an unbounded range which could lead
+            # to extremely large memory usage.
+            if end:
+                end = int(end)
+                result.extend(range(start, end + 1))
+            else:
+                result.append(start)
         else:
             result.append(int(positions))
         return result
+
+
+def normal_test():
+    """
+    普通功能的综合测试：验证文件系统的基础行为是否正常。
+    """
+    print("=" * 60)
+    print("开始执行 normal_test（基础功能测试）")
+    print("=" * 60)
+    
+    # 初始化文件系统
+    fs = GorillaFileSystem()
+    fs.root = Directory("/", None)
+    fs._current_dir = fs.root
+    
+    # 测试 1: pwd - 查看当前目录
+    print("\n[测试 1] pwd - 查看当前目录")
+    result = fs.pwd()
+    print(f"结果: {result}")
+    assert result["current_working_directory"] == "/"
+    
+    # 测试 2: mkdir - 创建目录
+    print("\n[测试 2] mkdir - 创建目录")
+    result = fs.mkdir("test_dir")
+    print(f"创建 test_dir: {result}")
+    assert result is None
+    
+    result = fs.mkdir("another_dir")
+    print(f"创建 another_dir: {result}")
+    assert result is None
+    
+    # 测试错误情况：创建已存在的目录
+    result = fs.mkdir("test_dir")
+    print(f"尝试创建已存在的目录: {result}")
+    assert "error" in result
+    
+    # 测试 3: ls - 列出目录内容
+    print("\n[测试 3] ls - 列出目录内容")
+    result = fs.ls()
+    print(f"当前目录内容: {result}")
+    assert "test_dir" in result["current_directory_content"]
+    assert "another_dir" in result["current_directory_content"]
+    
+    # 测试 4: touch - 创建文件
+    print("\n[测试 4] touch - 创建文件")
+    result = fs.touch("file1.txt")
+    print(f"创建 file1.txt: {result}")
+    assert result is None
+    
+    result = fs.touch("file2.txt")
+    print(f"创建 file2.txt: {result}")
+    assert result is None
+    
+    # 测试 5: echo - 写入文件内容
+    print("\n[测试 5] echo - 写入文件内容")
+    result = fs.echo("Hello, World!", "file1.txt")
+    print(f"写入 file1.txt: {result}")
+    assert result is None
+    
+    result = fs.echo("Line 1\nLine 2\nLine 3", "file2.txt")
+    print(f"写入 file2.txt: {result}")
+    assert result is None
+    
+    # 测试 echo 输出到终端
+    result = fs.echo("This is terminal output")
+    print(f"echo 到终端: {result}")
+    assert "terminal_output" in result
+    
+    # 测试 6: cat - 读取文件内容
+    print("\n[测试 6] cat - 读取文件内容")
+    result = fs.cat("file1.txt")
+    print(f"读取 file1.txt: {result}")
+    assert result["file_content"] == "Hello, World!"
+    
+    result = fs.cat("file2.txt")
+    print(f"读取 file2.txt: {result}")
+    assert "Line 1" in result["file_content"]
+    
+    # 测试错误情况：读取不存在的文件
+    result = fs.cat("nonexistent.txt")
+    print(f"读取不存在的文件: {result}")
+    assert "error" in result
+    
+    # 测试 7: cd - 切换目录
+    print("\n[测试 7] cd - 切换目录")
+    result = fs.cd("test_dir")
+    print(f"切换到 test_dir: {result}")
+    assert "current_working_directory" in result
+    
+    result = fs.pwd()
+    print(f"当前目录: {result}")
+    
+    # 在子目录中创建文件
+    fs.touch("subfile.txt")
+    fs.echo("Subdirectory content", "subfile.txt")
+    
+    # 返回父目录
+    result = fs.cd("..")
+    print(f"返回父目录: {result}")
+    
+    result = fs.pwd()
+    print(f"当前目录: {result}")
+    
+    # 测试 8: wc - 统计文件
+    print("\n[测试 8] wc - 统计文件")
+    result = fs.wc("file2.txt", "l")
+    print(f"统计 file2.txt 行数: {result}")
+    assert result["count"] == 3
+    assert result["type"] == "lines"
+    
+    result = fs.wc("file2.txt", "w")
+    print(f"统计 file2.txt 单词数: {result}")
+    assert result["type"] == "words"
+    
+    result = fs.wc("file2.txt", "c")
+    print(f"统计 file2.txt 字符数: {result}")
+    assert result["type"] == "characters"
+    
+    # 测试 9: sort - 排序文件
+    print("\n[测试 9] sort - 排序文件")
+    fs.echo("zebra\napple\nbanana", "unsorted.txt")
+    result = fs.sort("unsorted.txt")
+    print(f"排序 unsorted.txt: {result}")
+    assert "apple" in result["sorted_content"]
+    assert result["sorted_content"].split("\n")[0] == "apple"
+    
+    # 测试 10: grep - 搜索文件
+    print("\n[测试 10] grep - 搜索文件")
+    result = fs.grep("file2.txt", "Line")
+    print(f"在 file2.txt 中搜索 'Line': {result}")
+    assert len(result["matching_lines"]) > 0
+    
+    # 测试 11: tail - 查看文件尾部
+    print("\n[测试 11] tail - 查看文件尾部")
+    result = fs.tail("file2.txt", 2)
+    print(f"查看 file2.txt 最后 2 行: {result}")
+    assert "Line 2" in result["last_lines"] or "Line 3" in result["last_lines"]
+    
+    # 测试 12: find - 查找文件
+    print("\n[测试 12] find - 查找文件")
+    result = fs.find(".", "file")
+    print(f"查找包含 'file' 的文件: {result}")
+    assert len(result["matches"]) > 0
+    
+    result = fs.find("test_dir")
+    print(f"查找 test_dir 下的所有文件: {result}")
+    assert "subfile.txt" in str(result["matches"])
+    
+    # 测试 13: diff - 比较文件
+    print("\n[测试 13] diff - 比较文件")
+    fs.echo("same content", "file3.txt")
+    fs.echo("same content", "file4.txt")
+    result = fs.diff("file3.txt", "file4.txt")
+    print(f"比较相同文件: {result}")
+    
+    fs.echo("different", "file5.txt")
+    result = fs.diff("file3.txt", "file5.txt")
+    print(f"比较不同文件: {result}")
+    assert "diff_lines" in result
+    
+    # 测试 14: mv - 移动/重命名
+    print("\n[测试 14] mv - 移动/重命名")
+    result = fs.mv("file1.txt", "renamed_file.txt")
+    print(f"重命名 file1.txt: {result}")
+    assert "result" in result
+    
+    # 验证文件已重命名
+    result = fs.cat("renamed_file.txt")
+    print(f"读取重命名后的文件: {result}")
+    assert result["file_content"] == "Hello, World!"
+    
+    # 测试移动到目录
+    result = fs.mv("file2.txt", "test_dir")
+    print(f"移动 file2.txt 到 test_dir: {result}")
+    assert "result" in result
+    
+    # 测试 15: cp - 复制文件
+    print("\n[测试 15] cp - 复制文件")
+    result = fs.cp("renamed_file.txt", "copied_file.txt")
+    print(f"复制文件: {result}")
+    assert "result" in result
+    
+    result = fs.cat("copied_file.txt")
+    print(f"读取复制的文件: {result}")
+    assert result["file_content"] == "Hello, World!"
+    
+    # 测试复制到目录
+    result = fs.cp("copied_file.txt", "another_dir")
+    print(f"复制文件到目录: {result}")
+    assert "result" in result
+    
+    # 测试 16: du - 磁盘使用情况
+    print("\n[测试 16] du - 磁盘使用情况")
+    result = fs.du()
+    print(f"磁盘使用情况（字节）: {result}")
+    assert "disk_usage" in result
+    
+    result = fs.du(human_readable=True)
+    print(f"磁盘使用情况（可读格式）: {result}")
+    assert "disk_usage" in result
+    
+    # 测试 17: rm - 删除文件
+    print("\n[测试 17] rm - 删除文件")
+    result = fs.rm("copied_file.txt")
+    print(f"删除文件: {result}")
+    assert "result" in result
+    
+    # 验证文件已删除
+    result = fs.cat("copied_file.txt")
+    print(f"尝试读取已删除的文件: {result}")
+    assert "error" in result
+    
+    # 测试 18: rmdir - 删除目录
+    print("\n[测试 18] rmdir - 删除目录")
+    # 先创建一个空目录
+    fs.mkdir("empty_dir")
+    result = fs.rmdir("empty_dir")
+    print(f"删除空目录: {result}")
+    assert "result" in result
+    
+    # 测试删除非空目录（应该失败）
+    result = fs.rmdir("test_dir")
+    print(f"尝试删除非空目录: {result}")
+    assert "error" in result
+    
+    # 测试 19: 测试错误处理
+    print("\n[测试 19] 错误处理测试")
+    
+    # 测试无效字符
+    result = fs.touch("file/name.txt")
+    print(f"创建包含无效字符的文件名: {result}")
+    assert "error" in result
+    
+    # 测试不支持的路径
+    result = fs.cd("test_dir/subdir")
+    print(f"尝试多级路径切换: {result}")
+    assert "error" in result
+    
+    # 测试 ls -a (显示隐藏文件)
+    fs.touch(".hidden_file")
+    result = fs.ls()
+    print(f"ls (不显示隐藏文件): {result}")
+    assert ".hidden_file" not in result["current_directory_content"]
+    
+    result = fs.ls(a=True)
+    print(f"ls -a (显示隐藏文件): {result}")
+    assert ".hidden_file" in result["current_directory_content"]
+    
+    print("\n" + "=" * 60)
+    print("normal_test：所有基础功能测试完成！✓")
+    print("=" * 60)
+
+
+def regression_test():
+    """
+    回归测试：专门验证之前存在但已修复的 bug。
+    1. cp 复制到目录时，目录中已存在同名文件应报错，而不是静默覆盖。
+    2. _parse_positions 处理 '3-' 不应创建无限范围，而是安全返回 [3]。
+    """
+    print("=" * 60)
+    print("开始执行 regression_test（修复点回归测试）")
+    print("=" * 60)
+
+    # 回归测试 1：cp 到已有同名文件的目录
+    print("\n[回归测试 1] cp 复制到已有同名文件的目录时应报错")
+    fs = GorillaFileSystem()
+    fs.root = Directory("/", None)
+    fs._current_dir = fs.root
+
+    # 在当前目录创建源文件和目标目录
+    fs.echo("source content", "src.txt")
+    fs.mkdir("dst_dir")
+
+    # 在目标目录中手动创建一个同名文件，模拟“已存在”
+    dst_dir = fs._current_dir._get_item("dst_dir")
+    assert isinstance(dst_dir, Directory)
+    dst_dir._add_file("src.txt", "existing content")
+
+    # 执行 cp，期望返回错误而不是成功
+    result = fs.cp("src.txt", "dst_dir")
+    print(f"执行 cp('src.txt', 'dst_dir') 的结果: {result}")
+    assert "error" in result
+    assert "File exists" in result["error"]
+
+    # 回归测试 2：_parse_positions 安全处理 '3-' 这类输入
+    print("\n[回归测试 2] _parse_positions 安全处理 '3-'")
+    fs2 = GorillaFileSystem()
+    # 该方法不依赖文件系统状态，只测试解析逻辑
+    positions1 = fs2._parse_positions("1-5")
+    print(f"_parse_positions('1-5') = {positions1}")
+    assert positions1 == [1, 2, 3, 4, 5]
+
+    positions2 = fs2._parse_positions("3-")
+    print(f"_parse_positions('3-') = {positions2}")
+    # 修复后的期望行为：返回 [3]，而不是尝试构造无限范围
+    assert positions2 == [3]
+
+    positions3 = fs2._parse_positions("1,3-4")
+    print(f"_parse_positions('1,3-4') = {positions3}")
+    assert positions3 == [1, 3, 4]
+
+    print("\n" + "=" * 60)
+    print("regression_test：所有回归测试通过！✓")
+    print("=" * 60)
+
+
+def main():
+    """
+    入口函数：先跑基础功能测试，再跑回归测试。
+    """
+    normal_test()
+    regression_test()
+
+
+if __name__ == "__main__":
+    main()
