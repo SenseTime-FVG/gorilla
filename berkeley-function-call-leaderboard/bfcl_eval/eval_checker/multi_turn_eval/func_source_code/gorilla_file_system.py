@@ -2,6 +2,10 @@ import datetime
 import subprocess
 from copy import deepcopy
 from typing import Dict, List, Optional, Union
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
 
 from bfcl_eval.eval_checker.multi_turn_eval.func_source_code.long_context import (
     FILE_CONTENT_EXTENSION,
@@ -252,6 +256,19 @@ class GorillaFileSystem:
             file_name = f"{name}"
             directory._add_file(file_name)
 
+    def _update_parent_references(self, directory: Directory, new_parent: Directory) -> None:
+        """
+        Recursively update parent references for a directory and all its subdirectories.
+
+        Args:
+            directory (Directory): The directory whose parent references need updating.
+            new_parent (Directory): The new parent directory.
+        """
+        directory.parent = new_parent
+        for item in directory.contents.values():
+            if isinstance(item, Directory):
+                self._update_parent_references(item, directory)
+
     def pwd(self):
         """
         Return the current working directory path.
@@ -263,7 +280,7 @@ class GorillaFileSystem:
         """
         path = []
         dir = self._current_dir
-        while dir is not None and dir != self.root:
+        while dir.parent is not None:
             path.append(dir.name)
             dir = dir.parent
         return {"current_working_directory": "/" + "/".join(reversed(path))}
@@ -312,14 +329,14 @@ class GorillaFileSystem:
                 return {"error": "Current directory is already the root. Cannot go back."}
             else:
                 return {"error": "cd: ..: No such directory"}
-            return {"current_working_directory": self._current_dir.name}
+            return self.pwd()
 
         # Handle absolute or relative paths
         target_dir = self._navigate_to_directory(folder)
         if isinstance(target_dir, dict):  # This means there was an error from _navigate_to_directory
             return target_dir
         self._current_dir = target_dir
-        return {"current_working_directory": target_dir.name}
+        return self.pwd()
 
     def _validate_file_or_directory_name(self, dir_name: str) -> bool:
         if any(c in dir_name for c in '|/\\?%*:"><'):
@@ -382,10 +399,12 @@ class GorillaFileSystem:
                 item = self._current_dir._get_item(file_name)
                 if isinstance(item, File):
                     item._write(content)
+                    return {"result": f"Content written to '{file_name}'"}
                 else:
                     return {"error": f"echo: cannot write to '{file_name}': Is a directory"}
             else:
                 self._current_dir._add_file(file_name, content)
+                return {"result": f"Content written to '{file_name}'"}
         else:
             return {"terminal_output": content}
 
@@ -661,6 +680,7 @@ class GorillaFileSystem:
                     else:
                         dest_item._add_directory(source)
                         dest_item.contents[source].contents = deepcopy(item.contents)
+                        self._update_parent_references(dest_item.contents[source], dest_item)
                     return {"result": f"'{source}' moved to '{destination}/{source}'"}
             else:
                 return {
@@ -674,6 +694,7 @@ class GorillaFileSystem:
             else:
                 self._current_dir._add_directory(destination)
                 self._current_dir.contents[destination].contents = deepcopy(item.contents)
+                self._update_parent_references(self._current_dir.contents[destination], self._current_dir)
             return {"result": f"'{source}' moved to '{destination}'"}
 
     def rm(self, file_name: str) -> Dict[str, str]:
@@ -771,6 +792,7 @@ class GorillaFileSystem:
                     else:
                         dest_item._add_directory(source)
                         dest_item.contents[source].contents = deepcopy(item.contents)
+                        self._update_parent_references(dest_item.contents[source], dest_item)
                     return {"result": f"'{source}' copied to '{destination}/{source}'"}
             else:
                 return {
@@ -783,6 +805,7 @@ class GorillaFileSystem:
             else:
                 self._current_dir._add_directory(destination)
                 self._current_dir.contents[destination].contents = deepcopy(item.contents)
+                self._update_parent_references(self._current_dir.contents[destination], self._current_dir)
             return {"result": f"'{source}' copied to '{destination}'"}
 
     def _navigate_to_directory(
@@ -899,11 +922,11 @@ def normal_test():
     print("\n[测试 5] echo - 写入文件内容")
     result = fs.echo("Hello, World!", "file1.txt")
     print(f"写入 file1.txt: {result}")
-    assert result is None
-    
+    assert result == {"result": "Content written to 'file1.txt'"}
+
     result = fs.echo("Line 1\nLine 2\nLine 3", "file2.txt")
     print(f"写入 file2.txt: {result}")
-    assert result is None
+    assert result == {"result": "Content written to 'file2.txt'"}
     
     # 测试 echo 输出到终端
     result = fs.echo("This is terminal output")
@@ -925,25 +948,43 @@ def normal_test():
     print(f"读取不存在的文件: {result}")
     assert "error" in result
     
-    # 测试 7: cd - 切换目录
+    # 测试 7: cd - 切换目录并验证返回完整路径
     print("\n[测试 7] cd - 切换目录")
     result = fs.cd("test_dir")
     print(f"切换到 test_dir: {result}")
-    assert "current_working_directory" in result
-    
+    assert result == {"current_working_directory": "/test_dir"}
+
     result = fs.pwd()
     print(f"当前目录: {result}")
-    
+    assert result == {"current_working_directory": "/test_dir"}
+
     # 在子目录中创建文件
     fs.touch("subfile.txt")
     fs.echo("Subdirectory content", "subfile.txt")
-    
+
+    # 测试多层目录结构
+    fs.mkdir("level2")
+    fs.cd("level2")
+    result = fs.pwd()
+    print(f"二级目录 pwd: {result}")
+    assert result == {"current_working_directory": "/test_dir/level2"}
+
+    fs.mkdir("level3")
+    fs.cd("level3")
+    result = fs.pwd()
+    print(f"三级目录 pwd: {result}")
+    assert result == {"current_working_directory": "/test_dir/level2/level3"}
+
     # 返回父目录
     result = fs.cd("..")
     print(f"返回父目录: {result}")
-    
+    assert result == {"current_working_directory": "/test_dir/level2"}
+
+    fs.cd("..")
+    fs.cd("..")
     result = fs.pwd()
-    print(f"当前目录: {result}")
+    print(f"返回根目录: {result}")
+    assert result == {"current_working_directory": "/"}
     
     # 测试 8: wc - 统计文件
     print("\n[测试 8] wc - 统计文件")
@@ -1007,27 +1048,89 @@ def normal_test():
     result = fs.mv("file1.txt", "renamed_file.txt")
     print(f"重命名 file1.txt: {result}")
     assert "result" in result
-    
+
     # 验证文件已重命名
     result = fs.cat("renamed_file.txt")
     print(f"读取重命名后的文件: {result}")
     assert result["file_content"] == "Hello, World!"
-    
+
+    # 测试移动目录并验证 parent 引用
+    print("\n[测试 14.1] mv - 移动目录并验证 parent 引用")
+    fs.mkdir("move_test_dir")
+    fs.cd("move_test_dir")
+    fs.mkdir("inner_dir")
+    fs.cd("inner_dir")
+    fs.mkdir("deep_dir")
+    fs.cd("..")
+    fs.cd("..")
+
+    # 移动目录
+    result = fs.mv("move_test_dir", "moved_test_dir")
+    print(f"移动目录: {result}")
+    assert "result" in result
+
+    # 进入移动后的目录，验证 pwd 正确
+    fs.cd("moved_test_dir")
+    fs.cd("inner_dir")
+    result = fs.pwd()
+    print(f"移动后目录中的 pwd: {result}")
+    assert result == {"current_working_directory": "/moved_test_dir/inner_dir"}
+
+    fs.cd("deep_dir")
+    result = fs.pwd()
+    print(f"移动后深层目录中的 pwd: {result}")
+    assert result == {"current_working_directory": "/moved_test_dir/inner_dir/deep_dir"}
+
+    fs.cd("..")
+    fs.cd("..")
+    fs.cd("..")
+
     # 测试移动到目录
     result = fs.mv("file2.txt", "test_dir")
     print(f"移动 file2.txt 到 test_dir: {result}")
     assert "result" in result
-    
+
     # 测试 15: cp - 复制文件
     print("\n[测试 15] cp - 复制文件")
     result = fs.cp("renamed_file.txt", "copied_file.txt")
     print(f"复制文件: {result}")
     assert "result" in result
-    
+
     result = fs.cat("copied_file.txt")
     print(f"读取复制的文件: {result}")
     assert result["file_content"] == "Hello, World!"
-    
+
+    # 测试复制目录并验证 parent 引用
+    print("\n[测试 15.1] cp - 复制目录并验证 parent 引用")
+    fs.mkdir("copy_test_dir")
+    fs.cd("copy_test_dir")
+    fs.mkdir("inner_copy")
+    fs.cd("inner_copy")
+    fs.mkdir("deep_copy")
+    fs.cd("..")
+    fs.cd("..")
+
+    # 复制目录
+    result = fs.cp("copy_test_dir", "copied_test_dir")
+    print(f"复制目录: {result}")
+    assert "result" in result
+
+    # 进入复制后的目录，验证 pwd 正确
+    fs.cd("copied_test_dir")
+    fs.cd("inner_copy")
+    result = fs.pwd()
+    print(f"复制后目录中的 pwd: {result}")
+    assert result == {"current_working_directory": "/copied_test_dir/inner_copy"}
+
+    fs.cd("deep_copy")
+    result = fs.pwd()
+    print(f"复制后深层目录中的 pwd: {result}")
+    assert result == {"current_working_directory": "/copied_test_dir/inner_copy/deep_copy"}
+
+    fs.cd("..")
+    fs.cd("..")
+    fs.cd("..")
+
     # 测试复制到目录
     result = fs.cp("copied_file.txt", "another_dir")
     print(f"复制文件到目录: {result}")
